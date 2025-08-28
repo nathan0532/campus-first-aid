@@ -12,8 +12,8 @@ COPY frontend/package*.json ./frontend/
 COPY backend/package*.json ./backend/
 
 # 安装依赖（分步进行以减少内存使用）
-RUN cd frontend && npm ci --only=production
-RUN cd backend && npm ci --only=production
+RUN cd frontend && npm install --omit=dev
+RUN cd backend && npm install --omit=dev
 
 # 复制源码
 COPY frontend/ ./frontend/
