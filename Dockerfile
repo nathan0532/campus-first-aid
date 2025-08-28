@@ -12,7 +12,7 @@ COPY frontend/package*.json ./frontend/
 COPY backend/package*.json ./backend/
 
 # 安装依赖（构建时需要 dev 依赖）
-RUN cd frontend && npm install
+RUN cd frontend && npm install && ls -la node_modules/.bin/
 RUN cd backend && npm install --omit=dev
 
 # 复制源码
@@ -20,8 +20,8 @@ COPY frontend/ ./frontend/
 COPY backend/ ./backend/
 COPY deploy/init-production-db.js ./init-db.js
 
-# 构建前端
-RUN cd frontend && npm run build
+# 构建前端（使用 npx 确保找到 TypeScript）
+RUN cd frontend && npx tsc && npx vite build
 
 # 构建后端
 RUN cd backend && npm run build
