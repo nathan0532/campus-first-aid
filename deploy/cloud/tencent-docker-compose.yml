@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # 前端服务
+  lifeskill-frontend:
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile.frontend
+    image: ccr.ccs.tencentyun.com/lifeskill/frontend:latest
+    container_name: lifeskill-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
+      - static-assets:/usr/share/nginx/html/assets
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=https://lifeskill.app/api
+      - VITE_CDN_URL=https://cdn.lifeskill.app
+    depends_on:
+      - backend
+    networks:
+      - lifeskill-network
+
+  # 后端服务
+  lifeskill-backend:
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile.backend
+    image: ccr.ccs.tencentyun.com/lifeskill/backend:latest
+    container_name: lifeskill-backend
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - NODE_ENV=production
+      - PORT=5001
+      - JWT_SECRET=${JWT_SECRET}
+      - DB_PATH=./database/app.db
+      - CORS_ORIGIN=https://lifeskill.app
+      - COS_SECRET_ID=${COS_SECRET_ID}
+      - COS_SECRET_KEY=${COS_SECRET_KEY}
+      - COS_BUCKET=lifeskill-assets
+      - COS_REGION=ap-beijing
+    volumes:
+      - db-data:/usr/src/app/database
+      - app-uploads:/usr/src/app/uploads
+      - app-logs:/usr/src/app/logs
+    networks:
+      - lifeskill-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: lifeskill-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    networks:
+      - lifeskill-network
+
+  # 监控服务
+  monitoring:
+    image: prom/node-exporter:latest
+    container_name: lifeskill-monitoring
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - lifeskill-network
+
+networks:
+  lifeskill-network:
+    driver: bridge
+
+volumes:
+  db-data:
+  app-uploads:
+  app-logs:
+  redis-data:
+  static-assets:

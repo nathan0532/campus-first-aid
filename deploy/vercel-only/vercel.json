@@ -1,0 +1,54 @@
+{
+  "version": 2,
+  "name": "lifeskill-app-full",
+  "alias": ["lifeskill.app", "www.lifeskill.app"],
+  "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    },
+    {
+      "src": "deploy/vercel-only/api/**/*.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/health",
+      "dest": "/deploy/vercel-only/api/health.js"
+    },
+    {
+      "src": "/api/users/login",
+      "dest": "/deploy/vercel-only/api/users/login.js"
+    },
+    {
+      "src": "/api/(.*)",
+      "status": 404,
+      "dest": "/deploy/vercel-only/api/404.js"
+    },
+    {
+      "src": "/(.*\\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot))",
+      "dest": "/frontend/dist/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      }
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/dist/index.html"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production",
+    "VITE_API_URL": "https://lifeskill.app/api",
+    "JWT_SECRET": "@jwt-secret"
+  },
+  "functions": {
+    "deploy/vercel-only/api/**/*.js": {
+      "maxDuration": 10
+    }
+  }
+}

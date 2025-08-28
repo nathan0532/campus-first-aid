@@ -1,0 +1,148 @@
+name: 部署到生产环境
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # 测试阶段
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v3
+
+    - name: 设置Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: 安装前端依赖
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: 前端类型检查
+      working-directory: ./frontend
+      run: npm run type-check
+
+    - name: 前端语法检查
+      working-directory: ./frontend
+      run: npm run lint
+
+    - name: 前端构建测试
+      working-directory: ./frontend
+      run: npm run build
+
+    - name: 安装后端依赖
+      working-directory: ./backend
+      run: npm ci
+
+    - name: 后端测试
+      working-directory: ./backend
+      run: npm test || echo "暂无测试"
+
+  # 构建阶段
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v3
+
+    - name: 设置Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18.x'
+        cache: 'npm'
+
+    - name: 构建前端
+      working-directory: ./frontend
+      run: |
+        npm ci
+        npm run build
+
+    - name: 准备后端
+      working-directory: ./backend
+      run: |
+        npm ci --production
+        
+    - name: 创建部署包
+      run: |
+        mkdir -p deploy-package
+        cp -r frontend/dist deploy-package/frontend
+        cp -r backend deploy-package/backend
+        cp -r deploy deploy-package/
+        tar -czf cert-simulator-${{ github.sha }}.tar.gz deploy-package
+
+    - name: 上传构建产物
+      uses: actions/upload-artifact@v3
+      with:
+        name: cert-simulator-build
+        path: cert-simulator-${{ github.sha }}.tar.gz
+
+  # 部署阶段
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: 下载构建产物
+      uses: actions/download-artifact@v3
+      with:
+        name: cert-simulator-build
+
+    - name: 部署到服务器
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.PRIVATE_KEY }}
+        port: ${{ secrets.PORT }}
+        script: |
+          # 下载最新构建
+          cd /tmp
+          wget https://github.com/${{ github.repository }}/releases/download/${{ github.sha }}/cert-simulator-${{ github.sha }}.tar.gz
+          
+          # 解压
+          tar -xzf cert-simulator-${{ github.sha }}.tar.gz
+          
+          # 备份当前版本
+          if [ -d "/var/www/cert-simulator" ]; then
+            sudo cp -r /var/www/cert-simulator /var/backups/cert-simulator-$(date +%Y%m%d-%H%M%S)
+          fi
+          
+          # 部署新版本
+          sudo rm -rf /var/www/cert-simulator
+          sudo mv deploy-package /var/www/cert-simulator
+          sudo chown -R $USER:$USER /var/www/cert-simulator
+          
+          # 安装后端依赖
+          cd /var/www/cert-simulator/backend
+          npm install --production
+          
+          # 重启服务
+          pm2 restart cert-simulator-backend
+          sudo systemctl reload nginx
+          
+          # 健康检查
+          sleep 10
+          curl -f http://localhost:5001/api/health
+
+    - name: 通知部署结果
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployment'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+      if: always()

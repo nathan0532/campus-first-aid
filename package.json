@@ -1,0 +1,24 @@
+{
+  "name": "campus-first-aid",
+  "version": "1.0.0",
+  "description": "青少年CERT模拟训练系统",
+  "main": "index.js",
+  "scripts": {
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:admin": "cd admin && npm run dev",
+    "build": "npm run build:frontend && npm run build:backend && npm run build:admin",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "build:admin": "cd admin && npm run build",
+    "start": "cd backend && npm start"
+  },
+  "keywords": ["急救", "教育", "模拟训练", "React", "Node.js"],
+  "author": "CERT Simulator For Teens Team",
+  "license": "MIT",
+  "workspaces": [
+    "frontend",
+    "backend", 
+    "admin"
+  ]
+}

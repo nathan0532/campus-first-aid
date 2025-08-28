@@ -1,0 +1,81 @@
+# DigitalOcean App Platform 配置
+name: lifeskill-emergency-training
+region: nyc1
+
+services:
+  # 后端服务 - Docker容器
+  - name: lifeskill-backend
+    source_dir: /backend
+    dockerfile_path: ../deploy/Dockerfile.backend
+    github:
+      repo: your-username/campus-first-aid
+      branch: main
+      deploy_on_push: true
+    http_port: 5001
+    instance_count: 1
+    instance_size_slug: basic-xxs # $5/月
+    
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5001"
+      - key: JWT_SECRET
+        type: SECRET
+        value: YOUR_JWT_SECRET
+      - key: CORS_ORIGIN
+        value: https://lifeskill.app
+      - key: DATABASE_URL
+        type: SECRET
+        value: ${db.DATABASE_URL}
+    
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 30
+      period_seconds: 30
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+
+  # 前端服务 - 静态站点
+  - name: lifeskill-frontend
+    source_dir: /frontend
+    build_command: npm run build
+    output_dir: dist
+    github:
+      repo: your-username/campus-first-aid
+      branch: main
+      deploy_on_push: true
+    
+    envs:
+      - key: VITE_API_URL
+        value: ${lifeskill-backend.PUBLIC_URL}/api
+      - key: VITE_APP_NAME
+        value: LifeSkill Emergency Training
+
+    routes:
+      - path: /
+      - path: /api
+        redirect_to: ${lifeskill-backend.PUBLIC_URL}/api
+
+# 数据库服务
+databases:
+  - name: lifeskill-db
+    engine: PG # PostgreSQL
+    version: "14"
+    size: db-s-dev-database # $7/月
+    num_nodes: 1
+
+# 静态资源服务
+static_sites:
+  - name: lifeskill-assets
+    source_dir: /frontend/public
+    build_command: echo "Static assets"
+    output_dir: .
+
+# 域名配置
+domains:
+  - domain: lifeskill.app
+    type: PRIMARY
+  - domain: www.lifeskill.app
+    type: ALIAS

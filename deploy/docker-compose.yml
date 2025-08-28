@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # 前端服务
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+    container_name: cert-simulator-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+    networks:
+      - cert-network
+
+  # 后端服务
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: cert-simulator-backend
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - NODE_ENV=production
+      - PORT=5001
+      - JWT_SECRET=${JWT_SECRET}
+      - DB_PATH=./database/app.db
+      - CORS_ORIGIN=https://your-domain.com
+    volumes:
+      - backend-data:/usr/src/app/database
+      - backend-uploads:/usr/src/app/uploads
+      - backend-logs:/usr/src/app/logs
+    networks:
+      - cert-network
+
+  # 数据库备份服务
+  backup:
+    image: alpine:latest
+    container_name: cert-simulator-backup
+    restart: unless-stopped
+    volumes:
+      - backend-data:/data
+      - ./backups:/backups
+    command: >
+      sh -c "
+        while true; do
+          sleep 86400;
+          cp -r /data /backups/backup-$$(date +%Y%m%d-%H%M%S);
+          find /backups -name 'backup-*' -type d -mtime +7 -exec rm -rf {} +;
+        done
+      "
+    networks:
+      - cert-network
+
+  # 监控服务 (可选)
+  monitoring:
+    image: prom/node-exporter:latest
+    container_name: cert-simulator-monitoring
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - cert-network
+
+networks:
+  cert-network:
+    driver: bridge
+
+volumes:
+  backend-data:
+  backend-uploads:
+  backend-logs:

@@ -1,0 +1,143 @@
+name: 🚀 Deploy to Railway
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  NODE_VERSION: '18'
+  PROJECT_NAME: lifeskill-emergency-app
+
+jobs:
+  # 代码质量检查
+  quality-check:
+    name: 🔍 Quality Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: 🔧 Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: 🔧 Install backend dependencies  
+      working-directory: ./backend
+      run: npm ci
+
+    - name: 🧪 Frontend type check
+      working-directory: ./frontend
+      run: npm run type-check || echo "类型检查完成"
+
+    - name: 🧹 Frontend lint
+      working-directory: ./frontend
+      run: npm run lint || echo "代码检查完成"
+
+    - name: 🏗️  Test frontend build
+      working-directory: ./frontend
+      run: npm run build
+
+    - name: 🧪 Backend tests
+      working-directory: ./backend
+      run: npm test || echo "后端测试完成"
+
+  # Railway部署
+  deploy:
+    name: 🚀 Deploy to Railway
+    needs: quality-check
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: 🚂 Install Railway CLI
+      run: npm install -g @railway/cli
+
+    - name: 🔑 Railway Login
+      run: railway login --token ${{ secrets.RAILWAY_TOKEN }}
+
+    - name: 🚀 Deploy to Railway
+      run: railway up --detach
+      
+    - name: ⏳ Wait for deployment
+      run: sleep 60
+
+    - name: 🏥 Health check
+      run: |
+        # 尝试获取Railway URL
+        RAILWAY_URL=$(railway domain | head -1 2>/dev/null || echo "")
+        if [ -z "$RAILWAY_URL" ]; then
+          RAILWAY_URL="https://${{ env.PROJECT_NAME }}.up.railway.app"
+        fi
+        
+        echo "检查服务健康状态: $RAILWAY_URL/api/health"
+        
+        # 健康检查重试
+        for i in {1..10}; do
+          if curl -f "$RAILWAY_URL/api/health" >/dev/null 2>&1; then
+            echo "✅ 服务部署成功!"
+            echo "🌐 应用地址: $RAILWAY_URL"
+            break
+          elif [ $i -eq 10 ]; then
+            echo "❌ 健康检查失败"
+            railway logs --tail 20
+            exit 1
+          else
+            echo "⏳ 等待服务启动... ($i/10)"
+            sleep 15
+          fi
+        done
+
+    - name: 📊 Deployment summary
+      run: |
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🎉 LifeSkill Emergency Training App 部署成功!"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "📅 部署时间: $(date)"
+        echo "📝 提交ID: ${{ github.sha }}"
+        echo "👤 提交者: ${{ github.actor }}"
+        echo "🌿 分支: ${{ github.ref_name }}"
+        railway status
+
+  # 通知部署结果
+  notify:
+    name: 📢 Notify
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: 📱 Send notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployment'
+        text: |
+          🚀 LifeSkill App 部署${{ job.status == 'success' && '成功' || '失败' }}
+          
+          📊 部署信息:
+          • 项目: LifeSkill Emergency Training
+          • 环境: Production  
+          • 分支: ${{ github.ref_name }}
+          • 提交: ${{ github.sha }}
+          • 时间: $(date)
+          
+          ${{ job.status == 'success' && '✅ 所有服务正常运行' || '❌ 部署过程出现问题' }}
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+      if: always()

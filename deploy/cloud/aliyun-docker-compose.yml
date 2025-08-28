@@ -1,0 +1,170 @@
+version: '3.8'
+
+services:
+  # 前端服务
+  lifeskill-frontend:
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile.frontend
+    image: registry.cn-hangzhou.aliyuncs.com/lifeskill/frontend:latest
+    container_name: lifeskill-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - static-assets:/usr/share/nginx/html/assets
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=https://lifeskill.app/api
+      - VITE_CDN_URL=https://cdn.lifeskill.app
+    depends_on:
+      - backend
+    networks:
+      - lifeskill-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 后端服务
+  lifeskill-backend:
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile.backend
+    image: registry.cn-hangzhou.aliyuncs.com/lifeskill/backend:latest
+    container_name: lifeskill-backend
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - NODE_ENV=production
+      - PORT=5001
+      - JWT_SECRET=${JWT_SECRET}
+      - DB_PATH=./database/app.db
+      - CORS_ORIGIN=https://lifeskill.app
+      - OSS_ACCESS_KEY=${OSS_ACCESS_KEY}
+      - OSS_SECRET_KEY=${OSS_SECRET_KEY}
+      - OSS_BUCKET=lifeskill-assets
+      - OSS_REGION=oss-cn-hangzhou
+    volumes:
+      - db-data:/usr/src/app/database
+      - app-uploads:/usr/src/app/uploads
+      - app-logs:/usr/src/app/logs
+    networks:
+      - lifeskill-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: lifeskill-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    networks:
+      - lifeskill-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # 数据库备份服务
+  db-backup:
+    image: alpine:latest
+    container_name: lifeskill-backup
+    restart: unless-stopped
+    volumes:
+      - db-data:/data:ro
+      - ./backups:/backups
+      - /usr/bin/oss:/usr/bin/oss:ro  # 阿里云OSS CLI
+    environment:
+      - OSS_ACCESS_KEY=${OSS_ACCESS_KEY}
+      - OSS_SECRET_KEY=${OSS_SECRET_KEY}
+      - OSS_BUCKET=lifeskill-backups
+    command: |
+      sh -c "
+        while true; do
+          sleep 86400;  # 每天备份
+          BACKUP_NAME=backup-$$(date +%Y%m%d-%H%M%S);
+          cp -r /data /backups/$$BACKUP_NAME;
+          tar -czf /backups/$$BACKUP_NAME.tar.gz -C /backups $$BACKUP_NAME;
+          rm -rf /backups/$$BACKUP_NAME;
+          # 上传到OSS
+          oss cp /backups/$$BACKUP_NAME.tar.gz oss://lifeskill-backups/database/;
+          # 清理本地7天前的备份
+          find /backups -name 'backup-*.tar.gz' -mtime +7 -delete;
+        done
+      "
+    networks:
+      - lifeskill-network
+
+  # 监控服务
+  monitoring:
+    image: prom/node-exporter:latest
+    container_name: lifeskill-monitoring
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - lifeskill-network
+
+  # Nginx反向代理
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: lifeskill-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/proxy.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - static-assets:/var/www/assets:ro
+    depends_on:
+      - lifeskill-frontend
+      - lifeskill-backend
+    networks:
+      - lifeskill-network
+
+networks:
+  lifeskill-network:
+    driver: bridge
+    name: lifeskill-network
+
+volumes:
+  db-data:
+    driver: local
+  app-uploads:
+    driver: local
+  app-logs:
+    driver: local
+  redis-data:
+    driver: local
+  static-assets:
+    driver: local
