@@ -214,4 +214,4 @@ Thanks to all developers and educators who have contributed to campus first aid 
 
 ---
 
-**CERT Simulator For Teens** - Making first aid knowledge within reach 🚑
+**CERT Simulator For Teens** - Making first aid knowledge within reach 🚑# campus-first-aid
