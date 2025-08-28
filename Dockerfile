@@ -1,4 +1,4 @@
-# Railway 部署 Dockerfile - 简化单阶段构建
+# Railway 部署 Dockerfile - 简化单阶段构建 (修复 npm ci 问题)
 FROM node:18-alpine
 
 # 安装系统依赖
@@ -11,8 +11,8 @@ WORKDIR /app
 COPY frontend/package*.json ./frontend/
 COPY backend/package*.json ./backend/
 
-# 安装依赖（分步进行以减少内存使用）
-RUN cd frontend && npm install --omit=dev
+# 安装依赖（构建时需要 dev 依赖）
+RUN cd frontend && npm install
 RUN cd backend && npm install --omit=dev
 
 # 复制源码
@@ -28,6 +28,9 @@ RUN cd backend && npm run build
 
 # 复制前端构建产物到后端 public 目录
 RUN mkdir -p backend/public && cp -r frontend/dist/* backend/public/
+
+# 清理前端依赖以减少镜像大小
+RUN rm -rf frontend/node_modules frontend/src
 
 # 切换到后端目录
 WORKDIR /app/backend
